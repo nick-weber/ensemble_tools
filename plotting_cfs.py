@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 """
 This module contains functions to plot CFSv2 operational ensemble data
-Hi Nick!
 """
 import numpy as np
 from time import time
