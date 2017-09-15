@@ -21,6 +21,7 @@ PRMSL:mean sea level:mslp
 PRES:surface:psfc
 PRATE:surface:prate1h
 VVEL:500 mb:w_500hPa
+APCP:surface:ptotal
 # ==== WINDS ======
 UGRD:200 mb:uzonal_200hPa
 VGRD:200 mb:umeridional_200hPa

@@ -8,6 +8,7 @@ import os
 from datetime import datetime, timedelta
 import numpy as np
 import time
+import glob
 
 cfs_vars = ['prate', 'prmsl', 'tmp2m', 'wnd10m', 'wnd200', 'wnd850', 'z500']
 
@@ -46,6 +47,141 @@ def download_cfsv2_16mem(idate, cfsdir, verbose=False):
     end = time.time()
     if verbose: print('Elapsed time: {:.2f} min'.format((end-start)/60.))
     return
+
+def download_gefs(idate,gefsdir,verbose=False):
+    """
+    Downloads operational GEFS ensemble forecasts (initialized on idate)
+    Currently set to download pgrb2ap5 (0.5 degree resolution w/ most common parameters)
+
+    Requires:
+    idate ---> the day on which all ensemble members were initialized (datetime object)
+    gefsdir --> directory to store the downloaded grib files
+    """
+    gefs_gribs = ['control','members','ens_mean','ens_spread']
+    
+    if not os.path.isdir(cfsdir):
+        os.system('mkdir {}'.format(gefsdir))
+
+    # Point to the proper location on the NOMADS server for downloading CFSv2 forecasts
+    if verbose: print('\n==== Downloading operational GEFS forecasts ====')
+    ftpdir = 'ftp://ftp.ncep.noaa.gov/pub/data/nccf/com/gens/prod/gefs.{:%Y%m%d}'.format(idate)
+    start = time.time()
+    tstep = range(0,195,3)+range(198,390,6)
+    
+    # loop through all init times (00,06,12,18)
+    for hh in ['00','06','12','18']:
+    #for hh in ['12']:
+        #control run
+        os.chdir(gefsdir)
+        os.system('mkdir -p '+hh)
+        os.chdir(hh)
+        os.system('mkdir -p control')
+        os.chdir('control')
+        ftpdir = ftpdir+'/'+hh+'/pgrb2ap5/'
+        for t in tstep:
+             fxxx = "{0:0=3d}".format(t)
+             filename = 'gec00.t'+hh+'z.pgrb2a.0p50.f'+fxxx
+             os.system('wget -nc --user=anonymous  --password=jzagrod@uw.edu '+ ftpdir+filename)
+
+        convert_gefs_grb2nc(gefsdir+'/'+hh+'/control',idate,int(hh),fileprefix='gec',filetype='control')
+
+        #ensemble members
+        for mem in ['01','02','03','04','05','06','07','08','09','10','11','12','13','14','15','16','17','18','19','20']:
+            os.chdir(gefsdir+'/'+hh)
+            os.system('mkdir -p '+mem)
+            os.chdir(mem)
+            for t in tstep:
+                fxxx = "{0:0=3d}".format(t)
+                filename = 'gep'+mem+'.t'+hh+'z.pgrb2a.0p50.f'+fxxx
+                os.system('wget -nc --user=anonymous  --password=jzagrod@uw.edu '+ ftpdir+filename)
+
+            convert_gefs_grb2nc(gefsdir+'/'+hh+'/'+mem,idate,int(hh),fileprefix='gep'+mem,filetype='mem'+mem)
+
+        #ensemble mean
+        os.chdir(gefsdir+'/'+hh)
+        os.system('mkdir -p ens_mean')
+        os.chdir('ens_mean')
+        for t in tstep:
+             fxxx = "{0:0=3d}".format(t)
+             filename = 'geavg.t'+hh+'z.pgrb2a.0p50.f'+fxxx
+             os.system('wget -nc --user=anonymous  --password=jzagrod@uw.edu '+ ftpdir+filename)
+
+        convert_gefs_grb2nc(gefsdir+'/'+hh+'/'+mem,idate,int(hh),fileprefix='geavg',filetype='ens_mean')
+
+        #ensemble spread
+        os.chdir(gefsdir+'/'+hh)
+        os.system('mkdir -p ens_spread')
+        os.chdir('ens_spread')
+        for t in tstep:
+             fxxx = "{0:0=3d}".format(t)
+             filename = 'gespr.t'+hh+'z.pgrb2a.0p50.f'+fxxx
+             os.system('wget -nc --user=anonymous  --password=jzagrod@uw.edu '+ ftpdir+filename)
+
+        convert_gefs_grb2nc(gefsdir+'/'+hh+'/'+mem,idate,int(hh),fileprefix='gespr',filetype='ens_spread')
+
+    end = time.time()
+    if verbose: print('Elapsed time: {:.2f} min'.format((end-start)/60.))
+    return
+
+def convert_gefs_grb2nc(grbdir,iday,ihr, tablefile='cfs.table', fileprefix='gec', filetype='control',vrbls=None, verbose=False):
+    """
+    Converts downloaded GEFS gribs (forecasts or analyses) to netcdf, 
+    retaining only the dates, lead times, and variables designated 
+    in the nctable file and the -match keywords
+    
+    *Utilizes the wgrib2 utility
+
+    Currently assumes that all timesteps are being saved, variables can be adjusted in the code below.
+    I can make a table later so that it is prettier. 
+    
+    Requires:
+    grbdir --------> grib directory (also where the netcdfs will go)
+    iday ----------> the day on which all ensemble members were initialized (datetime object)
+    ihr------------> the hour of the initialization run (00, 06, 12, or 18)
+    tablefile -----> the nc_table file used in the wgrib2 conversion (not using yet but will later)
+    fileprefix ----> prefix for the grib files so we know what type they are 
+    filetype-------> prefix for the output file
+    vrbls ---------> list of desired variable for convection (if None, all variables are read)
+    """
+    from subprocess import check_output, Popen
+    import time
+    ncoutfile = grbdir+'test.nc'
+    
+    # Point to the nc_table (full path)
+    if tablefile[0] != '/': tablefile = '/home/disk/meso-home/jzagrod/Models/ensemble_tools/{}'.format(tablefile)
+    assert os.path.isfile(tablefile)
+    assert iday.hour==0
+    
+    #Get list of grib files
+    grbfiles = sorted(glob.glob(grbdir+'/'+fileprefix+'*'))
+
+    #Change init time to correct hour
+    #itime = iday.replace(hour=ihr)
+
+    # Get the -match keyword from the .table file
+    '''
+    with open(tablefile, "r") as tfile:
+        for l, line in enumerate(tfile):
+            if l==14:
+                matchtag = line[1:].rstrip()
+                break
+    '''
+    #temporary matchtag for testing
+    matchtag = ' -match ":(PRMSL|APCP):"'
+                
+    #Loop through files and convert to netCDF
+    for gind in range(0,len(grbfiles)):
+        grboutfile = grbdir+'/'+'gefs_'+filetype+'.nc'
+        os.system('wgrib2 '+grbfiles[gind]+matchtag+' -append -nc_table '+tablefile+' -netcdf '+grboutfile)
+    #the loop has to be run twice because wgrib doesn't like the uneven timesteps the first time
+    #but if you run it a second time it is happy
+    for gind in range(0,len(grbfiles)):
+        grboutfile = grbdir+'/'+'gefs_'+filetype+'.nc'
+        os.system('wgrib2 '+grbfiles[gind]+matchtag+' -append -nc_table '+tablefile+' -netcdf '+grboutfile)
+        os.system('rm -rf '+grbfiles[gind])
+    print('Successfully converted to ncdf '+filetype)
+    return
+
 
 def convert_ensemble_grb2nc(datadir, iday, ndays, tablefile='cfs.table', outfileprefix='cfsv2ens',
                             inittimes=[0,6,12,18], mems=[1,2,3,4], vrbls=None, verbose=False):
@@ -157,14 +293,19 @@ def timedelta_hours(dt_i, dt_f):
     """ Find the number of hours between two dates """
     return int((dt_f-dt_i).days*24 + (dt_f-dt_i).seconds/3600)
 
-
 if __name__ == '__main__':
     t1 = time.time()
     today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
     print('\n', today)                                      
     cfsdir = '/home/disk/vader2/njweber2/cfs4website/forecasts/{:%Y%m%d%H}'.format(today)
     #driver(today)
-    download_cfsv2_16mem(today, cfsdir, verbose=True)
-    convert_ensemble_grb2nc(cfsdir, today, 28, verbose=True)
+    #download_cfsv2_16mem(today, cfsdir, verbose=True)
+    #convert_ensemble_grb2nc(cfsdir, today, 28, verbose=True)
+
+    gefsdir = '/home/disk/anvil2/ensembles/gefs/forecasts/{:%Y%m%d}'.format(today)
+    download_gefs(today,gefsdir,verbose=True)
+
     t2 = time.time()
     print('====== TOTAL TIME: {:.2f} min ======\n'.format((t2-t1)/60.))
+
+    
