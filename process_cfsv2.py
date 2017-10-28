@@ -73,7 +73,7 @@ def convert_ensemble_grb2nc(datadir, iday, ndays, tablefile='cfs.table', outfile
     import time
     
     # Point to the nc_table (full path)
-    if tablefile[0] != '/': tablefile = '/home/disk/user_www/njweber2/nobackup/cfs/{}'.format(tablefile)
+    if tablefile[0] != '/': tablefile = '/home/disk/user_www/njweber2/nobackup/ensemble_tools/{}'.format(tablefile)
     assert os.path.isfile(tablefile)
     assert iday.hour==0
     
@@ -128,7 +128,7 @@ def convert_ensemble_grb2nc(datadir, iday, ndays, tablefile='cfs.table', outfile
                 matchtag2 += '{} hour fcst'.format(h)
                 if h < endlead: matchtag2 += '|'
             matchtag2 += '):"'
-            matchtag = ' '.join(matchtag, matchtag2)      
+            matchtag = ' '.join([matchtag, matchtag2])      
 
             # Interpolate each grib file to a 0.5-deg lat-lon grid and then convert/append
             # to one netcdf file
@@ -148,7 +148,7 @@ def convert_ensemble_grb2nc(datadir, iday, ndays, tablefile='cfs.table', outfile
                     splits = convertcomm.split('-nc_table')
                     convertcomm = splits[0] + '-append -nc_table' + splits[1]
                 Popen([convertcomm], shell=True).wait()
-                if interp: Popen(['rm -f temp.grb2'], shell=True).wait()
+                Popen(['rm -f temp.grb2'], shell=True).wait()
             end = time.time()
             if verbose: print('Elapsed time: {:.2f} min'.format((end-start)/60.))
     return
@@ -162,7 +162,7 @@ if __name__ == '__main__':
     t1 = time.time()
     today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
     print('\n', today)                                      
-    cfsdir = '/home/disk/vader2/njweber2/cfs4website/forecasts/{:%Y%m%d%H}'.format(today)
+    cfsdir = '/home/disk/anvil2/ensembles/cfsv2/{:%Y%m%d%H}'.format(today)
     #driver(today)
     download_cfsv2_16mem(today, cfsdir, verbose=True)
     convert_ensemble_grb2nc(cfsdir, today, 28, verbose=True)

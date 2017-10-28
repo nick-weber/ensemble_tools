@@ -12,7 +12,7 @@ class Ensemble(xarray.Dataset):
     xarray Dataset wrapper class to store and manipulate CFSv2 operational ensemble forecast data
     """
     @classmethod
-    def from_netcdfs(cls, idate, ncdir, filetag='cfsv2ens*.nc', chunks={'time':28}):
+    def from_netcdfs(cls, idate, ncdir, filetag='cfsv2ens*.nc', model='CFSv2', chunks={'time':28}):
         """
         Initializes an Ensemble class from a series of netcdf files, each containing forecast
         data for an individual member of the 16-member CFSv2 operational ensemble
@@ -38,7 +38,7 @@ class Ensemble(xarray.Dataset):
         if 't2m' in ensemble.variables.keys():
             ensemble['t2m'] -= 273.15
         # Assign attributes
-        ensemble.attrs.update(idate=idate, dt=6, workdir=ncdir)
+        ensemble.attrs.update(idate=idate, dt=6, workdir=ncdir, model=model)
         ensemble.__class__ = cls
         return ensemble
     
@@ -63,6 +63,8 @@ class Ensemble(xarray.Dataset):
         return ensemble
         
     #==== Functions to get various useful attributes ==========================
+    def model(self):
+        return self.attrs['model']
     def idate(self):
         return self.attrs['idate']
     def dt(self):
@@ -101,6 +103,28 @@ class Ensemble(xarray.Dataset):
         else:
             return np.cos(np.radians(self['latitude'].values))
         
+#==== Calculate some ensemble metrics ========================================
+    def ens_mean(self, field=None):
+        """ Calculates the ensemble mean """
+        if field is None:
+            return self.mean(dim='ens')
+        else:
+            return self[field].mean(dim='ens')
+        
+    def ens_stdv(self, field=None):
+        """ Calculates the ensemble standard deviation """
+        if field is None:
+            return self.std(dim='ens')
+        else:
+            return self[field].std(dim='ens')
+        
+    def ens_var(self, field=None):
+        """ Calculates the ensemble variance """
+        if field is None:
+            return self.var(dim='ens')
+        else:
+            return self[field].var(dim='ens')
+        
 #==== Project coordinates for plotting on a map ==============================
     def project_coordinates(self, m):
         """
@@ -108,6 +132,48 @@ class Ensemble(xarray.Dataset):
         """
         lo, la = np.meshgrid(self['longitude'].values[:], self['latitude'].values[:])
         return m(lo, la)
+
+#==== Calculate the wind speed at a particular level =========================
+    def calculate_windspeed(self, lev='10m'):
+        # if a number was given for the level, then use that pressure level
+        if type(lev)==int or type(lev)==float:
+            u = self['uzonal_{}hPa'.format(lev)].values
+            v = self['umeridional_{}hPa'.format(lev)].values
+            levstring = '{}hPa'.format(lev)
+        # otherwise, assume we want 10-meter winds
+        else:
+            u = self['u10'].values
+            v = self['v10'].values
+            levstring = '10m'
+        # calculate the wind speed
+        wndvar = xarray.DataArray(np.sqrt(u**2+v**2), dims=self['u10'].dims)
+        assignvar = { 'wndspd_{}'.format(levstring) : wndvar }
+        self.update(self.assign(**assignvar))
+            
+
+#==== Calculate the relative vorticity from the U, V winds ===================
+    def calculate_relvor(self, lev=850):
+        from windspharm.standard import VectorWind
+
+        # Load the full U and V fields
+        u_full = self['uzonal_{}hPa'.format(lev)].values
+        v_full = self['umeridional_{}hPa'.format(lev)].values
+        relvor = np.zeros(np.shape(u_full))
+
+        # Loop through all the valid times and ensemble members
+        for i1 in range(np.shape(u_full)[0]):
+            for i2 in range(np.shape(u_full)[1]):
+                # Create the spherical harmonics vector object
+                u = u_full[i1, i2, ::-1, :]  # lats must go from N to S
+                v = v_full[i1, i2, ::-1, :]  # lats must go from N to S
+                wnd = VectorWind(u, v, gridtype='regular')
+                # Calculate the relative vorticity
+                relvor[i1, i2, :, :] = wnd.vorticity()[::-1, :]
+
+        # Assign relative vorticity as a new variable
+        vorvar = xarray.DataArray(relvor, dims=self['uzonal_{}hPa'.format(lev)].dims)
+        assignvar = { 'relvor_{}hPa'.format(lev) : vorvar }
+        self.update(self.assign(**assignvar))
     
 #==== Resamples the fields temporally and returns the coarsened xarray =======
     def coarsen_temporally(self, new_dt):
@@ -261,6 +327,28 @@ class Ensemble(xarray.Dataset):
         else:
             raise IOError('Interpolation method "{}" is invalid!'.format(method))
         
+#==== Apply spatial filter to a desired field  ================================
+    def spatial_filter(self, field, N=3):
+        """Currently only applies a uniform 1-1-1 smoother"""
+        # Load the field into memory
+        data = self[field].values
+        filtdata = np.zeros(np.shape(data))
+        
+        # Now add together the N adjacent values on all sides
+        for xx in range(-N, N+1):
+            for yy in range(-N, N+1):
+                filtdata += np.roll(data, shift=(yy,xx), axis=(2,3))
+        # Now divide by the total number of grid boxes to get the average
+        filtdata /= (2*N + 1)**2
+        # NaN out the N latitudes closest to the poles (where the roll is non-continuous)
+        filtdata[:, :, :N+1, :] = np.nan
+        filtdata[:, :, -N:, :] = np.nan
+        
+        # Now create a new variable with the new filtered data
+        assignvar = {'filt_{}'.format(field) : (self[field].dims, filtdata)}
+        self.update(self.assign(**assignvar))
+        
+
 #==== Bandpass filter a desired field  ========================================
     def bandpass_filter(self, field, freq_i=1/2400., freq_f=1/480., 
                         wavenumbers=None, dim='time'):
