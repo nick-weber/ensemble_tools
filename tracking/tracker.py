@@ -5,12 +5,58 @@ space and time.
 """
 import numpy as np
 
-def driver():
+def driver(ens, filterscale=4, latbounds=(20, 70), lonbounds=(150, 240), verbose=False):
     """
     Uses the functions below, given an Ensemble object (and some other information), to identify, track,
     cluster, and store cyclones in an ensemble forecast system.
+    
+    Requires:
+    ens ---------> the Ensemble object whose data is used to track these cyclones
+    filterscale -> the number of points in each direction to be used in the spatial filter
+                   e.g., 4 --> a 9x9 spatial filter
+    latbounds ---> latitude bounds for the cyclone-tracking domain (tuple of ints/floats)
+    lonbounds ---> longitude bounds for the cyclone-tracking domain (tuple of ints/floats)
+    
+    Returns:
+    clusters ----> an EnsembleTrackClusters object containing all the cyclone tracks 
+                   (and their cluster IDs) within the model spatiotemporal domain
     """
-    return 'GOTTA DO THIS STILL'
+    from .cyclonetracks import EnsembleTrackClusters
+    from time import time
+    
+    # 1) Calculate the spatially filtered 850 hPa vorticity
+    if 'filt_relvor_850hPa' not in ens.variables.keys():
+        if verbose: print('Calculating 850hPa vorticity and applying spatial filter... ', end='')
+        start = time()
+        ens.calculate_relvor(lev=850)
+        ens.spatial_filter('relvor_850hPa', N=filterscale)
+        if verbose: print('{:.2f} min'.format((time()-start)/60.))
+            
+    # 2) Find all possible cyclone tracks for each ensemble member
+    if verbose: print('Finding cyclone centers and tracks for each ensemble member... ', end='')
+    start = time()
+    lats, lons = ens.latlons()
+    tracks = {} # this will be a list of lists of tracks
+    for mem in range(ens.dims['ens']):
+        # 2.A) Make a list of this member's cyclones at ALL times
+        cyclones = []
+        for t_ind in range(ens.dims['time']):
+            cyclones_1time = locate_vort_maxima_1time(ens, 'filt_relvor_850hPa', t_ind, mem, 
+                                                      latbounds=latbounds, lonbounds=lonbounds)
+            cyclones.append(cyclones_1time)
+        # 2.B) Use recursive function to find all valid cyclone tracks for this member
+        tracks[mem] = track_cyclones(cyclones)
+    if verbose: print('{:.2f} min'.format((time()-start)/60.))
+    
+    # 3) Cluster the tracks by spatiotemporal proximity (w/ machine learning)
+    if verbose: print('Clustering cyclone tracks using HBDSCAN... ', end='')
+    start = time()
+    alltracks = [tr for sublist in tracks.values() for tr in sublist] # flatten the 2D track list
+    clusters = EnsembleTrackClusters(alltracks, latbounds=latbounds, lonbounds=lonbounds)
+    if verbose: print('{:.2f} min'.format((time()-start)/60.))
+    
+    # DONE
+    return clusters
 
 ##############################################################################################################
 
@@ -21,16 +67,31 @@ def locate_vort_maxima_1time(ens, vortvar, t_ind, mem, latbounds=(-70, 70), lonb
     Also computes each center's effective radius.
     
     methodology from: Flaounas et al. 2014
+    
+    Requires:
+    ens --------> the Ensemble object whose data is used to track these cyclones
+    vortvar ----> name of the vorticity variable used to locate cyclones (string; e.g., 'filt_relvor_850hPa')
+    t_ind ------> time index
+    mem --------> ensemble member index (integer from 0 to (#members - 1) )
+    latbounds --> latitude bounds for the cyclone-tracking domain (tuple of ints/floats)
+    lonbounds --> longitude bounds for the cyclone-tracking domain (tuple of ints/floats)
+    vortthresh -> vorticity threshold used in cyclone detection
+    minrad -----> minimum radius (in # grid cells) for a cyclone center
+    maxrad -----> maximum radius (in # grid cells) for a cyclone center
+    
+    Returns:
+    cyclones ---> a list of CycloneCenter objects for this ensemble member and model time
     """
     import itertools
     from .cyclonetracks import CycloneCenter
     
+    # Get the latitude, longitude, and vorticity arrays for this member/time
     lats, lons = ens.latlons()
     vort = ens[vortvar].isel(time=t_ind, ens=mem).values
     assert np.shape(vort) == (len(lats), len(lons))
     
     # "define the local maximum as the maximum value of the central grid point 
-    #  among its eight surrounding grid points"
+    #  among its eight surrounding grid points" - Flaounas et al. 2014
     centers = []
     for j, lat in enumerate(lats):
         if not (lat>=latbounds[0] and lat<=latbounds[1]): continue
@@ -99,18 +160,25 @@ def locate_vort_maxima_1time(ens, vortvar, t_ind, mem, latbounds=(-70, 70), lonb
     radii = list(radii[keepinds])
     
     # Create a list of CycloneCenter objects for this time
-    cyclones_1time = [CycloneCenter(ens, c, t_ind, mem+1, vort[c[0],c[1]], r, lats[c[0]], lons[c[1]]) for \
-                      c, r in zip(centers, radii)]
-    return cyclones_1time
+    cyclones = [CycloneCenter(ens, c, t_ind, mem+1, vort[c[0],c[1]], r, lats[c[0]], lons[c[1]]) for \
+                c, r in zip(centers, radii)]
+    return cyclones
 
 ##############################################################################################################
 
-def track_cyclones(cyclones_alltimes, minlength=3):
+def track_cyclones(cyclones_alltimes, minlength=4):
     """
+    Given a list of CycloneCenters (for one ensemble member) at many times, this function finds all possible
+    cyclone tracks using a separate recursive function, then returns a list of only the tracks that
+    optimize a vorticity/distance cost function.
+    
     Requires:
     cyclones_alltimes --> a list of lists of CycloneCenter objects; parent list is of len(time), 
                           interior list of of len(# of cyclones at that time)
     minlength ----------> minimum required length (in timesteps) of a cyclone track
+    
+    Returns:
+    besttracks ----------> a list of CycloneTrack objects for this ensemble member
     """
     from .cyclonetracks import CycloneTrack
     from itertools import compress
@@ -122,11 +190,10 @@ def track_cyclones(cyclones_alltimes, minlength=3):
     # Now create a list of CycloneCenters *sorted* from highest maxvort to lowest
     cyclones = [cyc for v,cyc in sorted(zip(maxvorts, allcyclones), reverse=True)]
     
-    # Loop through our sorted potential cyclone centers and find the best track that goes trough each
+    # Loop through our sorted potential cyclone centers and find the best track that goes through each
     used_cyclones = []
     besttracks = []
     for tc, thiscyclone in enumerate(cyclones):
-        #print('==== CYCLONE {} of {} ===='.format(tc+1, len(cyclones)))
         if thiscyclone in used_cyclones: continue
         used_cyclones.append(thiscyclone)
         
@@ -138,7 +205,7 @@ def track_cyclones(cyclones_alltimes, minlength=3):
         tracks = list(compress(tracks, longenough))
         if len(tracks)==0: continue
         
-        # NEXT: Choose the track that minimizes the cost function:
+        # NEXT: Choose the track that minimizes the cost function (Flaounas et al. 2014):
         #  C = sum( (dist. btw. adjacent centers)*|vort. diff. btw. adjacent centers| ) / sum(dist. btw. adjacent centers)
         costs = np.zeros(len(tracks))
         for t, track in enumerate(tracks):
@@ -170,12 +237,16 @@ def recursive_pathfinder(tracks, cyclones, used_cyclones):
     tracks --------> list of CycloneTrack objects that is recursively expanded
     cyclones ------> list of candidate CycloneCenter objects to be added to the tracks
     used_cyclones -> list of CycloneCenter objects that have already been used
+    
+    Returns:
+    tracks --------> list of CycloneTrack objects (all possible tracks that meet the criteria)
     """
     from .cyclonetracks import CycloneTrack
     from itertools import compress
     
     allnewtracks = []
     
+    # Let's see if we can expand ANY of the given tracks:
     for track in tracks:
         if track.finished: continue
         thisnewtracks = [] # a list of new tracks that branch off this one
@@ -244,6 +315,7 @@ def recursive_pathfinder(tracks, cyclones, used_cyclones):
 ##############################################################################################################
 
 def angle_btw_pts(a,b,c):
+    """Computes the angle A->B->C in degrees"""
     # Vectors from the vertex B
     ba = np.array(a) - np.array(b)
     bc = np.array(c) - np.array(b)
