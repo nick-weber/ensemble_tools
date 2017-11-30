@@ -5,17 +5,21 @@ from datetime import datetime, timedelta
 from copy import deepcopy
 import os
 from netCDF4 import date2num, num2date
+import ens_utilities as ut
 
+###############################################################################################
+# Class for a global model on a regular grid
+###############################################################################################
 
-class Ensemble(xarray.Dataset):
+class GlobalEnsemble(xarray.Dataset):
     """
-    xarray Dataset wrapper class to store and manipulate CFSv2 operational ensemble forecast data
+    xarray Dataset wrapper class to store and manipulate global operational ensemble forecast data
     """
     @classmethod
-    def from_netcdfs(cls, idate, ncdir, filetag='cfsv2ens*.nc', model='CFSv2', chunks={'time':28}):
+    def from_NCEP_netcdfs(cls, idate, ncdir, filetag='cfsv2ens*.nc', model='CFSv2', chunks={'time':28}):
         """
-        Initializes an Ensemble class from a series of netcdf files, each containing forecast
-        data for an individual member of the 16-member CFSv2 operational ensemble
+        Initializes a GlobalEnsemble class from a series of netcdf files, each containing forecast
+        data for an individual member an NCEP operational ensemble (e.g., GEFS, CFSv2)
         
         Requires:
         idate ----> the day on which all ensemble members were initialized (datetime object)
@@ -24,7 +28,7 @@ class Ensemble(xarray.Dataset):
         chunks ---> dictionary describing how to chunk the data (xarray implements dask)
         
         Returns:
-        ensemble -> an instance of this Ensemble class
+        ensemble -> an instance of this GlobalEnsemble class
         """
         # Load the forecasts from the individual member files and combine along a new dimension 'ens'
         ensemble = xarray.open_mfdataset('{}/{}'.format(ncdir, filetag), concat_dim='ens', 
@@ -34,9 +38,6 @@ class Ensemble(xarray.Dataset):
         if 'prate1h' in ensemble.variables.keys():
             ensemble['prate1h'] *= 3600.
             ensemble.update(ensemble.assign(prate1d=ensemble.variables['prate1h']*24.))
-        # Change temperature from K to C
-        if 't2m' in ensemble.variables.keys():
-            ensemble['t2m'] -= 273.15
         # Assign attributes
         ensemble.attrs.update(idate=idate, dt=6, workdir=ncdir, model=model)
         ensemble.__class__ = cls
@@ -45,15 +46,15 @@ class Ensemble(xarray.Dataset):
     @classmethod
     def from_ensemble_netcdf(cls, ncfile, chunks={'time':28}):
         """
-        Initializes an Ensemble class from a single netcdf file that was produced using
-        the save_to_disk() method in this Ensemble class
+        Initializes a GlobalEnsemble class from a single netcdf file that was produced using
+        the save_to_disk() method in this GlobalEnsemble class
         
         Requires:
         ncfile ---> the netcdf file to be loaded (full path)
         chunks ---> dictionary describing how to chunk the data (xarray implements dask)
         
         Returns:
-        ensemble -> an instance of this Ensemble class
+        ensemble -> an instance of this GlobalEnsemble class
         """
         # Open the netcdf file
         ensemble = xarray.open_dataset(ncfile, chunks=chunks, autoclose=True, decode_cf=False)
@@ -72,9 +73,9 @@ class Ensemble(xarray.Dataset):
     def workdir(self):
         return self.attrs['workdir']
     def dx(self):
-        return self['lon'].values[1] - self['lon'].values[0]
+        return self['longitude'].values[1] - self['longitude'].values[0]
     def dy(self):
-        return self['lat'].values[1] - self['lat'].values[0]
+        return self['latitude'].values[1] - self['latitude'].values[0]
     def ntimes(self):    
         return self.dims['time']
     def ny(self):
@@ -88,9 +89,13 @@ class Ensemble(xarray.Dataset):
     def nvars(self):
         return len(self.vars())
     def vdates(self):
-        return np.array([self.idate() +  timedelta(days=1) + timedelta(hours=int(t*self.dt())) for t in range(self.ntimes())])
+        if self.model()=='CFSv2':
+            return np.array([self.idate() +  timedelta(days=1) + timedelta(hours=int(t*self.dt())) \
+                             for t in range(self.ntimes())])
+        else:
+            return np.array([self.idate() + timedelta(hours=int(t*self.dt())) for t in range(self.ntimes())])
     def leadtimes(self):
-        return [timedelta_hours(self.idate(), d) for d in self.vdates()]
+        return [ut.timedelta_hours(self.idate(), d) for d in self.vdates()]
         
 #==== Get the lat/lon grid and area weights ==================================
     def latlons(self):
@@ -192,8 +197,8 @@ class Ensemble(xarray.Dataset):
         Computes and returns a meridionally averaged field or the full dataset
         """
         lats = self['latitude'].values
-        yi = nearest_ind(lats, lat_i)
-        yf = nearest_ind(lats, lat_f) + 1
+        yi = ut.nearest_ind(lats, lat_i)
+        yf = ut.nearest_ind(lats, lat_f) + 1
         # Either average/return the entire dataset, or just one field
         if field is None:
             latband = self.isel(latitude=range(yi,yf)) * self.area_weights(asdataarray=True)
@@ -212,15 +217,15 @@ class Ensemble(xarray.Dataset):
             else:              return self[field].mean(dim='time', keep_attrs=True)
         # Otherwise, average between the two desired times
         else:
-            ti = nearest_ind(self.vdates(), dt_i)
-            tf = nearest_ind(self.vdates(), dt_f) + 1
+            ti = ut.nearest_ind(self.vdates(), dt_i)
+            tf = ut.nearest_ind(self.vdates(), dt_f) + 1
             if field is None:  return self.isel(time=range(ti,tf)).mean(dim='time', keep_attrs=True)
             else:              return self.isel(time=range(ti,tf))[field].mean(dim='time', keep_attrs=True)
         
 #==== Average the data to a coarser timescale (e.g., daily, weekly) ===========
     def temporal_average(self, timescale):
         """
-        Computes and returns a new Ensemble that has been averaged at a coareser
+        Computes and returns a new GlobalEnsemble that has been averaged at a coareser
         temporal scale
         
         'timescale' should be in hours 
@@ -285,8 +290,8 @@ class Ensemble(xarray.Dataset):
         lats, lons = self.latlons()
         # Find the point nearest to the desired location
         if method=='nearest':
-            lat_ind = nearest_ind(lats, lat)
-            lon_ind = nearest_ind(lons, lon)
+            lat_ind = ut.nearest_ind(lats, lat)
+            lon_ind = ut.nearest_ind(lons, lon)
             if verbose:
                 print('Fetching data at {:.02f}N {:.02f}E'.format(lats[lat_ind], lons[lon_ind]))
             # Return the data at that point
@@ -296,10 +301,10 @@ class Ensemble(xarray.Dataset):
         elif method=='linear':
             if verbose: print('loading full data array for interpolation...')
             # ONLY load the points surrounding the desired point
-            xi = nearest_ind(lons, lon)-4
-            xf = nearest_ind(lons, lon)+5
-            yi = nearest_ind(lats, lat)-4
-            yf = nearest_ind(lats, lat)+5
+            xi = ut.nearest_ind(lons, lon)-4
+            xf = ut.nearest_ind(lons, lon)+5
+            yi = ut.nearest_ind(lats, lat)-4
+            yf = ut.nearest_ind(lats, lat)+5
             data = self[field].isel(longitude=range(xi,xf), latitude=range(yi,yf)).values
             sublats = lats[yi:yf]
             sublons = lons[xi:xf]
@@ -323,6 +328,9 @@ class Ensemble(xarray.Dataset):
                 la, t, lo = np.meshgrid(lats, time, lons)
                 d_interp = griddata((t.flatten(), la.flatten(), lo.flatten()), data.flatten(), 
                                            (list(time), [lat], [lon]))
+            # We want the 'ens' dimension to be the first dimension
+            if self.dims['ens']==np.shape(d_interp)[1]:
+                d_interp = np.swap_axes(d_interp, 0, 1)
             return d_interp
         else:
             raise IOError('Interpolation method "{}" is invalid!'.format(method))
@@ -397,20 +405,420 @@ class Ensemble(xarray.Dataset):
     def save_to_disk(self, filename=None):
         # Dump this object to disk
         if filename is None:
-            filename = '{}/cfsv2_ensemble_{:%Y%m%d%H}.nc'.format(self.workdir(), self.idate())
+            filename = '{}/{}_ensemble_{:%Y%m%d%H}.nc'.format(self.model(), self.workdir(), self.idate())
         self.attrs['idate'] = date2num(self.idate(), 'hours since 1800-01-01')
         self.to_netcdf(filename)
         self.attrs['idate'] = num2date(self.idate(), 'hours since 1800-01-01')
         
         
+###############################################################################################
+# Class for a regional model on an irregular grid
+###############################################################################################
+
+class RegionalEnsemble(xarray.Dataset):
+    """
+    xarray Dataset wrapper class to store and manipulate regional operational ensemble forecast data
+    """
+    @classmethod
+    def from_wrfouts(cls, idate, wrfdir, domain=1, memberfile='uw_wrf/members.txt', 
+                     dt=1, verbose=False):
+        """
+        Initializes a RegionalEnsemble class from an ensemble of WRF output files, with each member
+        stored in a separate subdirectory within [wrfdir]
+        
+        Requires:
+        idate ------> the day on which all ensemble members were initialized (datetime object)
+        wrfdir -----> directory containing the ensemble member subdirectories
+        domain -----> WRF domain identifies (int)
+        memberfile -> name of the text file containing the names of the ensemble members
+        chunks -----> dictionary describing how to chunk the data (xarray implements dask)
+        
+        Returns:
+        ensemble -> an instance of this RegionalEnsemble class
+        """
+        from uw_wrf.tools import load_ensemble_xr
+        
+        # Get the ensemble member directories from a text file
+        mems = np.genfromtxt(memberfile, dtype=str)
+        
+        # Load the desired WRF forecasts as xarray objects
+        ensemble = load_ensemble_xr(wrfdir, mems, dom=domain, verbose=verbose)
+        
+        # Assign attributes
+        ensemble.attrs.update(idate=idate, dt=dt, workdir=wrfdir, model='WRF', domain=domain)
+        ensemble.__class__ = cls
+        ensemble.attrs.update(bmap=ensemble.get_map_projection())
+        #ensemble.calculate_preciprate()
+        return ensemble
+        
+    #==== Functions to get various useful attributes ==========================
+    def bmap(self):
+        return self.attrs['bmap']
+    def domain(self):
+        return self.attrs['domain']
+    def model(self):
+        return self.attrs['model']
+    def idate(self):
+        return self.attrs['idate']
+    def dt(self):
+        return self.attrs['dt']
+    def workdir(self):
+        return self.attrs['workdir']
+    def dx(self):
+        return self.attrs['DX']
+    def dy(self):
+        return self.attrs['DY']
+    def ntimes(self):    
+        return self.dims['time']
+    def ny(self):
+        return self.dims['latitude']
+    def nx(self):
+        return self.dims['longitude']
+    def nmems(self):
+        return self.dims['ens']
+    def vars(self):
+        return [x for x in self.variables.keys() if x not in ['latitude', 'longitude', 'time', 'p']]
+    def nvars(self):
+        return len(self.vars())
+    def vdates(self):
+        if self.model()=='CFSv2':
+            return np.array([self.idate() +  timedelta(days=1) + timedelta(hours=int(t*self.dt())) \
+                             for t in range(self.ntimes())])
+        else:
+            return np.array([self.idate() + timedelta(hours=int(t*self.dt())) for t in range(self.ntimes())])
+    def leadtimes(self):
+        return [ut.timedelta_hours(self.idate(), d) for d in self.vdates()]
+        
+#==== Get the lat/lon grid and area weights ==================================
+    def latlons(self, staggering=None):
+        """ Returns 1D lat and lon grids """
+        if staggering in ['U', 'u']:
+            return self['latitude_ustag'].values, self['longitude_ustag'].values
+        elif staggering in ['V', 'v']:
+            return self['latitude_vstag'].values, self['longitude_vstag'].values
+        return self['latitude'].values, self['longitude'].values
+    
+    def area_weights(self, asdataarray=False):
+        if asdataarray:
+            return np.cos(np.radians(self['latitude']))
+        else:
+            return np.cos(np.radians(self['latitude'].values))
+        
+    def get_stag(self, field):
+        """ Determine the staggering of the given field """
+        if 'longitude_stag' in self[field].dims:
+            return 'U'
+        elif 'latitude_stag' in self[field].dims:
+            return 'V'
+        return None
+        
+#==== Calculate some ensemble metrics ========================================
+    def ens_mean(self, field=None):
+        """ Calculates the ensemble mean """
+        if field is None:
+            return self.mean(dim='ens')
+        else:
+            return self[field].mean(dim='ens')
+        
+    def ens_stdv(self, field=None):
+        """ Calculates the ensemble standard deviation """
+        if field is None:
+            return self.std(dim='ens')
+        else:
+            return self[field].std(dim='ens')
+        
+    def ens_var(self, field=None):
+        """ Calculates the ensemble variance """
+        if field is None:
+            return self.var(dim='ens')
+        else:
+            return self[field].var(dim='ens')
+        
+#==== Create a Basemap projection identical to the desired model domain ======
+    def get_map_projection(self, ax=None):
+        """
+        Gets a map projection identical to the Lambert Conformal projection
+        specified in this object's attributes (i.e., the WRF domain)
+        
+        Requires:
+        ax --> axis object to link this projection to
+        
+        Returns:
+        m ---> Basemap projection
+        """
+        from mpl_toolkits.basemap import Basemap
+        m = Basemap(width=(self.nx()-2)*self.dx(), height=(self.ny()-2)*self.dy(),
+                    resolution='l',area_thresh=1000.,projection='lcc', ax=ax,
+                    lat_1=self.attrs['TRUELAT1'], lat_2=self.attrs['TRUELAT2'],
+                    lat_0=self.attrs['CEN_LAT'], lon_0=self.attrs['CEN_LON'])
+        return m
+        
+#==== Project coordinates for plotting on a map ==============================
+    def project_coordinates(self, m):
+        """
+        Projects the lat-lons onto a map projection
+        """
+        la, lo = self.latlons()
+        return m(lo, la)
+
+#==== Retrieve or calculate a field from this dataset ========================
+    def get_field(self, field, lev=None):
+        
+        # Use Luke's WRF functions to compute new variables
+        import uw_wrf.new_wrf_plotting_functions.wrf_metfunctions as wrf
+        from itertools import product as iprod
+
+        # ANY RAW WRF FIELD
+        if field in self.variables.keys():
+            return self[field].values
+
+        # MEAN SEA LEVEL PRESSURE
+        elif field=='mslp':
+            PB = self['pressure_base'].values; P = self['pressure_pert'].values
+            PHB = self['height_base'].values; PH = self['height_pert'].values
+            T = self['theta_pert'].values; QVAPOR = self['qv'].values
+            T0 = self.attrs['t0']
+            if len(P.shape) == 3:
+                slp = wrf.slp(PB, P, PHB, PH, T, QVAPOR, TBASE=T0)
+            elif len(P.shape) == 4:
+                slp = np.zeros(self['psfc'].shape) # should be 3-d
+                for m in range(P.shape[0]):
+                    slp[m,:,:] = wrf.slp(PB, P[m,:,:,:], PHB, PH[m,:,:,:], T[m,:,:,:], 
+                                         QVAPOR[m,:,:,:], TBASE=T0)[0]
+            elif len(P.shape) == 5:
+                slp = np.zeros(self['psfc'].shape) # should be 4-d
+                for n,m in list(iprod(range(P.shape[0]), range(P.shape[1]))):
+                    slp[n,m,:,:] = wrf.slp(PB, P[n,m,:,:,:], PHB, PH[n,m,:,:,:], T[n,m,:,:,:], 
+                                           QVAPOR[n,m,:,:,:], TBASE=T0)[0]
+            else: raise ValueError('Bad shape of PB:',PB.shape)
+            return slp
+        
+        # HOURLY PRECIPITATION RATE (assumes hourly output)
+        elif field=='prate':
+            RAINC = self['rainc'].values; RAINNC = self['rainnc'].values
+            if len(RAINNC.shape) == 3:
+                prate = wrf.calculate_preciprate(RAINNC, RAINC=RAINC, t_axis=0)
+            elif len(RAINNC.shape) == 4:
+                prate = wrf.calculate_preciprate(RAINNC, RAINC=RAINC, t_axis=1)
+            else: raise ValueError('Bad shape of RAINNC:',RAINNC.shape)
+            return prate
+        
+        # TOTAL ACCUMULATED PRECIPITATION
+        elif field=='precip':
+            RAINC = self['rainc'].values; RAINNC = self['rainnc'].values
+            return RAINC + RAINNC
+        
+        # HOURLY MODEL SNOWFALL RATE (assumes hourly output)
+        elif field=='srate':
+            SNOWNC = self['snownc'].values
+            if len(SNOWNC.shape) == 3:
+                srate = wrf.calculate_preciprate(SNOWNC, t_axis=0)
+            elif len(SNOWNC.shape) == 4:
+                srate = wrf.calculate_preciprate(SNOWNC, t_axis=1)
+            else: raise ValueError('Bad shape of SNOWNC:',SNOWNC.shape)
+            return srate * 10. # assumes 10:1 ratio for snowfall:SWE
+        
+        # TOTAL ACCUMULATED SNOWFALL
+        elif field=='snow':
+            return self['snownc'].values * 10. # assumes 10:1 ratio for snowfall:SWE
+        
+        # 10-METER WIND SPEEDS
+        elif field=='wnd10m':
+            U10 = self['u10'].values; V10 = self['v10'].values
+            return np.sqrt(U10**2 + V10**2)
+
+        else: raise ValueError('Unknown field: "{}"'.format(field))
+        
+#==== Get the timeseries of a given field at the desired lat/lon =============
+    def get_timeseries(self, field, loc, method='nearest', verbose=False):
+        """
+        Uses NN or linear interpolation to get timeseries of the desired field at a
+        specified lat/lon location
+        """
+        from scipy.interpolate import griddata
+        
+        lat, lon = loc
+        # We're assuming that the desired field is a surface/unstaggered field
+        # e.g., t2m, wnd10m, precip, etc.  (u10 and v10 ARE unstaggered!)
+        lats, lons = self.latlons()
+
+        # Find the index of the nearest point to the desired lat/lon
+        diffs = np.abs(lats-lat) + np.abs(lons-lon)
+        yn, xn = np.unravel_index(diffs.argmin(), diffs.shape)
+        if method=='nearest':
+            if verbose: print('Fetching data at {:.02f}N {:.02f}E'.format(lats[yn,xn], lons[yn,xn]))
+            # Return the data at that point
+            return self.isel(latitude=[yn], longitude=[xn]).get_field(field).squeeze()
+        
+        if verbose: print('performing linear interpolation...')
+        # ONLY load the points surrounding the desired point
+        xi = xn - 4
+        xf = xn + 5
+        yi = yn - 4
+        yf = yn + 5
+        data = self.isel(longitude=range(xi,xf), latitude=range(yi,yf)).get_field(field)
+        
+        sublats = lats[yi:yf, xi:xf]
+        sublons = lons[yi:yf, xi:xf]
+        time = np.array(self.leadtimes())
+        # Make a 3D time-lat-lon meshgrid
+        t = np.broadcast_to(time[:,None,None], (len(time), sublats.shape[0], sublats.shape[1]))
+        la = np.broadcast_to(sublats[None,:,:], (len(time), sublats.shape[0], sublats.shape[1]))
+        lo = np.broadcast_to(sublons[None,:,:], (len(time), sublons.shape[0], sublons.shape[1]))
+        
+        # If this is a 4D dataset, do the interpolation for each member separately
+        if 'ens' in self.dims:
+            ens = np.arange(self.nmems())
+            d_interp = np.zeros(np.shape(data)[:2])
+            for mem in np.arange(self.dims['ens']):
+                if verbose: print('  interpolating member-{}'.format(int(mem)+1))
+                if self.dims['ens']==np.shape(d_interp)[0]:
+                    d_interp[mem, :] = griddata((t.flatten(), la.flatten(), lo.flatten()), 
+                                                data[mem, :, :, :].flatten(), (list(time), [lat], [lon]))
+                else:
+                    d_interp[:, mem] = griddata((t.flatten(), la.flatten(), lo.flatten()), 
+                                                    data[:, mem, :, :].flatten(), (list(time), [lat], [lon]))
+
+        # If this is just a single member (or an ensemble mean) do the full interpolation:
+        else:
+            d_interp = griddata((t.flatten(), la.flatten(), lo.flatten()), data.flatten(), 
+                                (list(time), [lat], [lon]))
+        # We want the 'ens' dimension to be the first dimension
+        if self.dims['ens']==np.shape(d_interp)[1]:
+            d_interp = np.swap_axes(d_interp, 0, 1)
+        return d_interp
+    
+#==== Get the timeseries of a given field at the desired lat/lon =============
+    def get_multiple_timeseries(self, field, locs, verbose=False):
+        """
+        Uses NN or linear interpolation to get timeseries of the desired field at a
+        specified lat/lon location
+        """
+        from scipy.interpolate import griddata
+        
+        # Separete the desired points into latitudes and longitudes
+        latlocs = [loc[0] for loc in locs]
+        lonlocs = [loc[1] for loc in locs]
+        
+        # We're assuming that the desired field is a surface/unstaggered field
+        # e.g., t2m, wnd10m, precip, etc.  (u10 and v10 ARE unstaggered!)
+        lats, lons = self.latlons()
+
+        
+        # Load in the dataset for the desired field
+        print('Loading full "{}" field into memory...'.format(field))
+        data = self.get_field(field) # shape = (t, lat, lon) OR (ens, t, lat, lon)
+        
+        time = np.array(self.leadtimes())
+        # Make a 3D time-lat-lon meshgrid
+        t = np.broadcast_to(time[:,None,None], (len(time), lats.shape[0], lats.shape[1]))
+        la = np.broadcast_to(lats[None,:,:], (len(time), lats.shape[0], lats.shape[1]))
+        lo = np.broadcast_to(lons[None,:,:], (len(time), lons.shape[0], lons.shape[1]))
+        
+        # If this is a 4D dataset, do the interpolation for each member separately
+        if verbose: print('performing linear interpolation...')
+        if 'ens' in self.dims:
+            ens = np.arange(self.nmems())
+            d_interp = np.zeros(np.shape(data)[:2])
+            for mem in np.arange(self.dims['ens']):
+                if verbose: print('  interpolating member-{}'.format(int(mem)+1))
+                if self.dims['ens']==np.shape(d_interp)[0]:
+                    d_interp[mem, :] = griddata((t.flatten(), la.flatten(), lo.flatten()), 
+                                                data[mem, :, :, :].flatten(), (list(time), [latlocs], [lonlocs]))
+                else:
+                    d_interp[:, mem] = griddata((t.flatten(), la.flatten(), lo.flatten()), 
+                                                    data[:, mem, :, :].flatten(), (list(time), [latlocs], [lonlocs]))
+
+        # If this is just a single member (or an ensemble mean) do the full interpolation:
+        else:
+            d_interp = griddata((t.flatten(), la.flatten(), lo.flatten()), data.flatten(), 
+                                (list(time), [latlocs], [lonlocs]))
+        # We want the 'ens' dimension to be the first dimension
+        if self.dims['ens']==np.shape(d_interp)[1]:
+            d_interp = np.swap_axes(d_interp, 0, 1)
+        return d_interp
+    
+#==== Resamples the fields temporally and returns the coarsened xarray =======
+    def coarsen_temporally(self, new_dt):
+        """
+        Resamples the dataset at a new, coarser temporal frequency
+        """
+        assert new_dt % self.dt() == 0
+        dt_ratio = int(new_dt / self.dt())
+        new_obj = self.isel(time=np.arange(self.ntimes())[::dt_ratio])
+        new_obj.attrs['dt'] = new_dt
+        return new_obj
+           
+#==== Average all fields or a single field between two times ==================
+    def compute_timemean(self, field=None, dt_i=None, dt_f=None):
+        """
+        Computes and returns a temporally averaged field or the full dataset
+        """
+        # If no times are provided, average over the entire time dimension
+        if dt_i is None or dt_f is None:
+            if field is None:  return self.mean(dim='time', keep_attrs=True)
+            else:              return self[field].mean(dim='time', keep_attrs=True)
+        # Otherwise, average between the two desired times
+        else:
+            ti = ut.nearest_ind(self.vdates(), dt_i)
+            tf = ut.nearest_ind(self.vdates(), dt_f) + 1
+            if field is None:  return self.isel(time=range(ti,tf)).mean(dim='time', keep_attrs=True)
+            else:              return self.isel(time=range(ti,tf))[field].mean(dim='time', keep_attrs=True)
+        
+#==== Average the data to a coarser timescale (e.g., daily, weekly) ===========
+    def temporal_average(self, timescale):
+        """
+        Computes and returns a new GlobalEnsemble that has been averaged at a coareser
+        temporal scale
+        
+        'timescale' should be in hours 
+        """
+        assert timescale % self.dt() == 0
+        indiv_times = []
+        vdates = self.vdates()
+        ntsteps = int(timescale/self.dt())
+        # Use the compute_timemean function above to average the data every [timescale] hours
+        for t in np.arange(0, self.ntimes()-1, ntsteps):
+            avg_1time = self.compute_timemean(dt_i=vdates[t], 
+                                              dt_f=vdates[t]+timedelta(hours=timescale-self.dt()))
+            indiv_times.append(avg_1time)
+        # Combine into one Dataset and assign the updated [dt] attribute
+        avgd_data = xarray.concat(indiv_times, dim='time', data_vars='different')
+        avgd_data.__class__ = self.__class__
+        avgd_data.attrs.update(dt=timescale)
+        return avgd_data
+        
+#==== Apply spatial filter to a desired field  ================================
+    def spatial_filter(self, field, N=3):
+        """Currently only applies a uniform 1-1-1 smoother"""
+        # Load the field into memory
+        data = self[field].values
+        filtdata = np.zeros(np.shape(data))
+        
+        # Now add together the N adjacent values on all sides
+        for xx in range(-N, N+1):
+            for yy in range(-N, N+1):
+                filtdata += np.roll(data, shift=(yy,xx), axis=(2,3))
+        # Now divide by the total number of grid boxes to get the average
+        filtdata /= (2*N + 1)**2
+        # NaN out the N latitudes closest to the poles (where the roll is non-continuous)
+        filtdata[:, :, :N+1, :] = np.nan
+        filtdata[:, :, -N:, :] = np.nan
+        
+        # Now create a new variable with the new filtered data
+        assignvar = {'filt_{}'.format(field) : (self[field].dims, filtdata)}
+        self.update(self.assign(**assignvar))
+        
+#==== Function to save the xarray Dataset to a netcdf file ====================
+    def save_to_disk(self, filename=None):
+        # Dump this object to disk
+        if filename is None:
+            filename = '{}/{}_ensemble_{:%Y%m%d%H}.nc'.format(self.model(), self.workdir(), self.idate())
+        self.attrs['idate'] = date2num(self.idate(), 'hours since 1800-01-01')
+        self.to_netcdf(filename)
+        self.attrs['idate'] = num2date(self.idate(), 'hours since 1800-01-01')
+        
         
 ###############################################################################################
 # extra utilities
 ###############################################################################################
-
-def timedelta_hours(dt_i, dt_f):
-    """ Find the number of hours between two dates """
-    return int((dt_f-dt_i).days*24 + (dt_f-dt_i).seconds/3600)
-
-def nearest_ind(array, value):
-    return int((np.abs(array-value)).argmin())

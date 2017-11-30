@@ -22,12 +22,12 @@ PRES:surface:psfc
 PRATE:surface:prate1h
 VVEL:500 mb:w_500hPa
 # ==== WINDS ======
-UGRD:200 mb:uzonal_200hPa
-VGRD:200 mb:umeridional_200hPa
-UGRD:850 mb:uzonal_850hPa
-VGRD:850 mb:umeridional_850hPa
-UGRD:500 mb:uzonal_500hPa
-VGRD:500 mb:umeridional_500hPa
+UGRD:200 mb:u_200hPa
+VGRD:200 mb:v_200hPa
+UGRD:850 mb:u_850hPa
+VGRD:850 mb:v_850hPa
+UGRD:500 mb:u_500hPa
+VGRD:500 mb:v_500hPa
 UGRD:10 m above ground:u10
 VGRD:10 m above ground:v10
 # ==== HEIGHTS =====
