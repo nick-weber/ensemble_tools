@@ -35,7 +35,6 @@ def driver(ens, filterscale=4, latbounds=(20, 70), lonbounds=(150, 240), verbose
     # 2) Find all possible cyclone tracks for each ensemble member
     if verbose: print('Finding cyclone centers and tracks for each ensemble member... ', end='')
     start = time()
-    lats, lons = ens.latlons()
     tracks = {} # this will be a list of lists of tracks
     for mem in range(ens.dims['ens']):
         # 2.A) Make a list of this member's cyclones at ALL times

@@ -1,0 +1,16 @@
+cmcg
+gasp2
+gefs01
+gefs02
+gefs03
+gefs04
+gefs05
+gefs06
+gefs07
+gefs08
+gefs09
+gefs10
+jmag2
+ngps
+tcwb
+ukmo
