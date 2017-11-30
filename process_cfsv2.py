@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Contains functions for downloading, processing, and making verification figures 
-with operational CFSv2 forecasts
+Contains functions for downloading and processing operational CFSv2 
+forecast data files. 
 """
 
 import os
