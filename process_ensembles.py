@@ -1,3 +1,4 @@
+#!/usr/bin/python
 # -*- coding: utf-8 -*-
 """
 Contains functions for downloading, processing, and making verification figures 
@@ -81,21 +82,24 @@ def process_gefs_parallel(intuple):
     fileprefixes = ['pgrb2ap5']
     idate = today
     hh = '00'
+    #check if NC file already there
+
     for fileprefix in fileprefixes:
         ftpdir = '{}gefs.{:%Y%m%d}/{}/{}/'.format(ftp_masterdir,idate,hh,fileprefix)
         os.chdir(gefsdir+'/'+hh)
         fxxx = "{0:0=3d}".format(t)
         os.system('mkdir -p '+fxxx)
         os.chdir(fxxx)
-        #check if NC file already there
         nc_check = glob.glob('{}/*{}*.nc'.format(os.getcwd(),fileprefix))
         if len(nc_check) == 0:
             make_wget_text_file(fileprefix,hh,fxxx,t)
             os.system('wget -q -nc --user=anonymous  --password=jzagrod@uw.edu --base='+ftpdir+' -i ./wget_list_'+str(t)+'.txt')
             os.system('rm -rf wget_list_'+str(t)+'.txt')
             convert_gefs_grb2nc(gefsdir+'/{}/{}/'.format(hh,fxxx),idate,int(hh),fxxx,fileprefix=fileprefix)
+        else:
+            print('NC file already there. Filename: {}'.format(nc_check[0]))
 
-def download_gefs(idate,gefsdir,fileprefixes,verbose=False,ihours = ['00']):
+def download_gefs(idate,gefsdir,fileprefixes,verbose=False,ihours = ['00','12']):
     """
     Downloads operational GEFS ensemble forecasts (initialized on idate)
     Currently set to download pgrb2ap5 (0.5 degree resolution w/ most common parameters)
