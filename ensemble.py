@@ -436,19 +436,33 @@ class RegionalEnsemble(xarray.Dataset):
         Returns:
         ensemble -> an instance of this RegionalEnsemble class
         """
-        from uw_wrf.tools import load_ensemble_xr
+        from uw_wrf.tools import load_ensemble_xr, load_ensemble_allhrs
         
         # Get the ensemble member directories from a text file
         mems = np.genfromtxt(memberfile, dtype=str)
         
         # Load the desired WRF forecasts as xarray objects
-        ensemble = load_ensemble_xr(wrfdir, mems, dom=domain, verbose=verbose)
+        try:
+            ensemble, missing_mems = load_ensemble_allhrs(idate, wrfdir, mems, dom=domain, returnmissing=True, verbose=verbose)
+        except IOError as err:
+            if verbose: print('ERROR in "load_ensemble_allhrs()":', err.args[0])
+            ensemble, missing_mems = load_ensemble_xr(wrfdir, mems, dom=domain, returnmissing=True, verbose=verbose)
         
         # Assign attributes
-        ensemble.attrs.update(idate=idate, dt=dt, workdir=wrfdir, model='WRF', domain=domain)
+        ensemble.attrs.update(idate=idate, dt=dt, workdir=wrfdir, model='WRF', domain=domain,
+                              missing_mems=missing_mems)
         ensemble.__class__ = cls
         ensemble.attrs.update(bmap=ensemble.get_map_projection())
-        #ensemble.calculate_preciprate()
+        
+        ## Calculate the rain RATE and snow RATE
+        #if verbose: print('Computing precip/snow rates...')
+        #precip = ensemble['rainnc'] + ensemble['rainc']
+        #print(precip)
+        #ensemble = ensemble.assign(precip=precip)
+        #prate = (ensemble['precip'] - ensemble['precip'].shift(Time=1)) / ensemble.dt()  #  mm/hr
+        #srate = 10.* ((ensemble['snownc'] - ensemble['snownc'].shift(Time=1)) / ensemble.dt()) / 25.4 # in/hr
+        #ensemble = ensemble.assign(prate=prate, srate=srate)
+        
         return ensemble
         
     #==== Functions to get various useful attributes ==========================
