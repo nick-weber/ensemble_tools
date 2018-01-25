@@ -81,7 +81,6 @@ def process_gefs_parallel(intuple):
     print 'processing gefs for time:'+str(t)
     fileprefixes = ['pgrb2ap5']
     idate = today
-    hh = '00'
     #check if NC file already there
 
     for fileprefix in fileprefixes:
