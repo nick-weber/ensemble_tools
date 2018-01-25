@@ -12,10 +12,8 @@ import seaborn as sns
 sns.reset_orig()
 
 # A dictionary of variables' units (for plot labeling),  {varname : units}
-units = {'t2m' : 'F', 'wnd10m' : 'kts', 'prate' : 'mm h$^{-1}$', 'precip' : 'mm', 
-         'srate' : 'in h$^{-1}$', 'snow' : 'inches', 'mslp': 'hPa'}
-# A text file conaining station IDs and associated lat/lon locations
-stidfile = '/home/disk/user_www/njweber2/nobackup/ensemble_tools/stids.csv'
+units = {'t2m' : 'F', 'wnd10m' : 'kts', 'prate' : 'mm/h', 'precip' : 'mm', 
+         'srate' : 'in/h', 'snow' : 'inches', 'mslp': 'hPa'}
 
 class Plotter:
     """
@@ -75,9 +73,105 @@ class Plotter:
         else:
             ax.set_xticklabels([])
         
-    #==============================================================================================
-    #======= PLOTTING FUNCTIONS ===================================================================
-    #==============================================================================================
+    ###############################################################################################
+    #### PLOTTING FUNCTIONS #######################################################################
+    ###############################################################################################
+    
+    
+    #======= PROBABILITY MAPS =====================================================================
+    
+    def plot_prob_thresh(self, field, thresh, dt1, dt2, title=None, cmap=plt.cm.viridis_r,
+                         greaterthan=True, m=None, show=True, savedir=None, 
+                         probability=False, verbose=False):
+
+        # Create figure and axis
+        fig, ax = plt.subplots(figsize=(10,6))
+        fig.subplots_adjust(left=0.04, right=0.88, bottom=0.05, top=0.95)
+
+        # Draw onto the Basemap object
+        if m is None:
+            if self.ens.model()=='WRF': m = self.ens.bmap()
+            else: raise ValueError('Need to supply a Basemap projection!')
+        m.drawcoastlines()
+        m.drawcountries()
+        m.drawstates()
+        m.drawparallels(np.arange(-90,91,5),labels=[1,0,0,0],fontsize=10, dashes=[5,3])
+        m.drawmeridians(np.arange(0,361,10),labels=[0,0,0,1],fontsize=10, dashes=[5,3])
+
+        # Project lats/lons
+        x, y, = self.ens.project_coordinates(m)
+
+        # Find the indices corresponding to the desired time period
+        t1 = ut.nearest_ind(self.ens.vdates(), dt1)
+        t2 = ut.nearest_ind(self.ens.vdates(), dt2)+1
+
+        # Get the data for the desired time period
+        if verbose: print('Loading {} data...'.format(field))
+        if field in ['prate','srate']:
+            if t1==0: 
+                data = self.ens.isel(time=range(t1,t2+1)).get_field(field)[:,:-1,:,:]
+            else:    
+                data = self.ens.isel(time=range(t1-1,t2+1)).get_field(field)[:,1:-1,:,:]
+        else:
+            data = self.ens.isel(time=range(t1,t2)).get_field(field)
+        data = ut.plotting_units(field, data, newunit=units[field])
+
+        # Find the probability of exceedance of the given threshold
+        if greaterthan:
+            gtlt = '>'
+            exceed = (data > thresh).astype(int)
+        else:
+            gtlt = '<'
+            exceed = (data < thresh).astype(int)
+        if verbose: print('Calculating prob( {} {} {:.01f} )...'.format(field, gtlt, thresh))
+        # FIRST we just want to see if ANY of the times between dt1 and dt2 exceeded the threshold
+        exceed = (np.sum(exceed, axis=1)>0).astype(int)
+        # NOW we get the probability at each grid point
+        prob = np.sum(exceed, axis=0)
+        problevs = np.arange(self.ens.dims['ens'])+1
+        probunits = '# of members'
+        if probability: 
+            prob = (prob / self.ens.dims['ens']) * 100.
+            problevs = np.arange(10, 101, 5)
+            probunits = '%'
+
+        # Contour-fill the probability of exceedance values
+        if verbose: print('Plotting probabilities...')
+        cs = ax.contourf(x, y, prob, levels=problevs, cmap=cmap, antialiasing=False)
+        # Colorbar and contour labels
+        cax = fig.add_axes([0.89, 0.05, 0.03, 0.9])
+        cb = plt.colorbar(cs, cax=cax, label=probunits)
+        cb.set_ticks(problevs)
+        cb.set_ticklabels(problevs)
+
+        # Put model info in upper-right corner
+        if self.ens.model()=='WRF': model = 'WRF_d{:02d}'.format(self.ens.domain())
+        else:                       model = self.ens.model()
+        txt = ax.text(0.98, 0.975, model, color='k', ha='right', va='top', 
+                      transform=ax.transAxes, fontsize=14)
+        txt.set_bbox(dict(facecolor='white', alpha=0.65, edgecolor='k'))
+
+
+        # Title
+        if title is not None:
+            ax.set_title(title, loc='left')
+        else:
+            if dt1==dt2:
+                titledate = ' on {:%Y-%m-%d_%H}'.format(dt1)
+            else:
+                titledate = ' btw. {:%Y-%m-%d_%H} and {:%Y-%m-%d_%H}'.format(dt1, dt2)
+            title = 'P( {} {} {:.01f} {} ){}'
+            ax.text(0., 1.01, title.format(field, gtlt, thresh, units[field], titledate), 
+                    ha='left', va='bottom', transform=ax.transAxes, fontsize=12)
+            ax.text(1., 1.01, 'init: {:%Y-%m-%d %H:00}'.format(self.ens.idate()), 
+                    ha='right', va='bottom', transform=ax.transAxes, fontsize=12)
+        if savedir is not None:
+            plt.savefig('{}/{}_prob-{}-{:.01f}_{:%Y%m%d%H}-{:%Y%m%d%H}.png'.format(savedir, model, field, thresh,dt1,dt2))
+        if show: plt.show()
+        else: plt.close()
+            
+    
+    #======= ENSEMBLE PLUMES ======================================================================
     
     def plot_plumes(self, ax, x, data, col, plotmean=True):
         """
@@ -155,7 +249,7 @@ class Plotter:
         Currently plots 2m temperature, 10m wind speeds, and precipitation rate.
         
         Requires:
-        stid -------> station ID (string); must be in the stidfile (see below)
+        stid -------> station ID (string); must be in the        (see below)
         interp -----> interpolation method to get ensemble forecast at point ('nearest' or 'linear')
         showfig ----> display the figure? If false, figure is closed after saving.
         tick_intvl -> number of hours between each x-axis tick (int)
