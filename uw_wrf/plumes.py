@@ -6,6 +6,8 @@ Module for loading and plotting UW WRF ensemble plumes at different locations
 import numpy as np
 import xarray
 from datetime import datetime
+import matplotlib
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import ens_utilities as ut
 import os
@@ -19,10 +21,11 @@ units = {'t2m' : 'F', 'td2m' : 'F', 'wspd10m' : 'kts', 'wdir10m' : 'deg. from N'
          'rh2m' : '%'}
 
 # A dictionary of colors for each WRF ensemble member
-memcols = {'cmcg':'firebrick', 'gasp2':'fuchsia', 'gefs01':'darkblue', 'gefs02':'dodgerblue',
+memcols = {'cmcg':'firebrick', 'gasp2':'fuchsia', 'gefs01':'dodgerblue', 'gefs02':'dodgerblue',
            'gefs03':'dodgerblue', 'gefs04':'dodgerblue', 'gefs05':'dodgerblue', 'gefs06':'dodgerblue',
            'gefs07':'dodgerblue', 'gefs08':'dodgerblue', 'gefs09':'dodgerblue', 'gefs10':'dodgerblue',
-           'jmag2':'forestgreen', 'ngps':'gold', 'ukmo':'darkorange'}
+           'jmag2':'seagreen', 'ngps':'olive', 'tcwb':'goldenrod', 'ukmo':'darkorange',
+           'control':'darkblue'}
 
 
 class Plumes(xarray.Dataset):
@@ -288,20 +291,22 @@ class Plumes(xarray.Dataset):
         x = np.arange(1, np.shape(data)[1]+1)
         for m, mem in enumerate(self.mems()):
             # Plot each ensemble member with a thin line
-            if mem=='gefs01': lw = 2.
-            else: lw = 1.
-            if mem=='gefs02': 
-                label = 'gefs02-10'
+            lw = 1.
+            label = mem
+            zo = 2
+            if mem=='control': 
+                lw = 2.
+                zo = 3
+            elif mem=='gefs01': 
+                label = 'gefs'
                 zo = 1
-            elif ('gefs' in mem) and (mem not in ['gefs01', 'gefs02']): 
+            elif ('gefs' in mem) and (mem != 'gefs01'): 
                 label = '_nolegend_'
                 zo = 1
-            else: 
-                label = mem
-                zo = 2
+                
             ax.plot(x, data[m,:], color=memcols[mem], linewidth=lw, zorder=zo, label=label)
         # Plot the ensemble mean in *bold*
-        ax.plot(x, np.nanmean(data, axis=0), color='0.15', linewidth=3, alpha=0.65, zorder=3, label='MEAN')
+        ax.plot(x, np.nanmean(data, axis=0), color='0.15', linewidth=3, alpha=0.65, zorder=4, label='MEAN')
         
         # Create the legend
         ax.legend(bbox_to_anchor=(1., 0.5), loc='center left', ncol=1)
@@ -432,13 +437,14 @@ def main(vrbls=['t2m', 'td2m', 'rh2m', 'wspd10m', 'mslp', 'precip', 'snow', 'pra
     # Get our model initialization date, data directory, and figure directory (default = TODAY)
     if idate is None: idate = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     ensdir = '/home/disk/sage4/mm5rt/nobackup/ensembles/{:%Y%m%d%H}'.format(idate)
-    figdir = '/home/disk/p/njweber2/ensemble_figures/{:%Y%m%d%H}'.format(idate)
+    figdir = '/home/disk/p/njweber2/public_html/realtime/wrf_ensemble/{:%Y%m%d%H}'.format(idate)
+    ut.checkdir(figdir)
+    figdir += '/plumes'
 
     # Create Plumes object with these data
-    if verbose: print('Loading WRF ensemble plume data...')
+    if verbose: print('\nLoading WRF ensemble plume data...')
     start = time()
     plumes = Plumes.from_netcdfs(ensdir, figdir, domain=3, verbose=verbose)
-    #print(plumes)
     plumes.load() # load everything into memory for faster plotting operations
     if verbose: print('{:.02f} min\n'.format((time()-start)/60.))
     
