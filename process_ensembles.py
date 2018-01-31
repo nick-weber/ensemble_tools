@@ -81,7 +81,6 @@ def process_gefs_parallel(intuple):
     print 'processing gefs for time:'+str(t)
     fileprefixes = ['pgrb2ap5']
     idate = today
-    hh = '00'
     #check if NC file already there
 
     for fileprefix in fileprefixes:
@@ -318,7 +317,7 @@ def timedelta_hours(dt_i, dt_f):
 
 if __name__ == '__main__':
     t1 = time.time()
-    today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     print('\n', today)                                      
     cfsdir = '/home/disk/vader2/njweber2/cfs4website/forecasts/{:%Y%m%d%H}'.format(today)
     #driver(today)
