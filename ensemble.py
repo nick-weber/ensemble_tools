@@ -34,10 +34,12 @@ class GlobalEnsemble(xarray.Dataset):
         ensemble = xarray.open_mfdataset('{}/{}'.format(ncdir, filetag), concat_dim='ens', 
                                     chunks=chunks, autoclose=True, decode_cf=False)
         ensemble = ensemble.assign_coords(ens=np.arange(ensemble.dims['ens'])+1)
-        # Change precipitation from mm/s to mm/h
+        # Perform necessary calculation(s) to ensure precip rate is in mm/h
         if 'prate1h' in ensemble.variables.keys() and model=='CFSv2':
             ensemble['prate1h'] *= 3600.
             ensemble.update(ensemble.assign(prate1d=ensemble.variables['prate1h']*24.))
+        elif model=='GEFS':
+            ensemble.update(ensemble.assign(prate1h=ensemble.variables['ptotal']/6.))
         # Assign attributes
         ensemble.attrs.update(idate=idate, dt=6, workdir=ncdir, model=model)
         ensemble.__class__ = cls
@@ -142,8 +144,8 @@ class GlobalEnsemble(xarray.Dataset):
     def calculate_windspeed(self, lev='10m'):
         # if a number was given for the level, then use that pressure level
         if type(lev)==int or type(lev)==float:
-            u = self['uzonal_{}hPa'.format(lev)].values
-            v = self['umeridional_{}hPa'.format(lev)].values
+            u = self['u_{}hPa'.format(lev)].values
+            v = self['v_{}hPa'.format(lev)].values
             levstring = '{}hPa'.format(lev)
         # otherwise, assume we want 10-meter winds
         else:
@@ -161,8 +163,8 @@ class GlobalEnsemble(xarray.Dataset):
         from windspharm.standard import VectorWind
 
         # Load the full U and V fields
-        u_full = self['uzonal_{}hPa'.format(lev)].values
-        v_full = self['umeridional_{}hPa'.format(lev)].values
+        u_full = self['u_{}hPa'.format(lev)].values
+        v_full = self['v_{}hPa'.format(lev)].values
         relvor = np.zeros(np.shape(u_full))
 
         # Loop through all the valid times and ensemble members
@@ -176,7 +178,7 @@ class GlobalEnsemble(xarray.Dataset):
                 relvor[i1, i2, :, :] = wnd.vorticity()[::-1, :]
 
         # Assign relative vorticity as a new variable
-        vorvar = xarray.DataArray(relvor, dims=self['uzonal_{}hPa'.format(lev)].dims)
+        vorvar = xarray.DataArray(relvor, dims=self['u_{}hPa'.format(lev)].dims)
         assignvar = { 'relvor_{}hPa'.format(lev) : vorvar }
         self.update(self.assign(**assignvar))
     

@@ -48,12 +48,12 @@ HGT:surface:terrain
 # ==== TEMPERATURE ======
 TMP:2 m above ground:t2m
 TMP:surface:tsfc
-TMP:1000 mb:temperature_1000hPa
-TMP:925 mb:temperature_925hPa
-TMP:850 mb:temperature_850hPa
-TMP:700 mb:temperature_700hPa
-TMP:500 mb:temperature_500hPa
-TMP:200 mb:temperature_200hPa
+TMP:1000 mb:t_1000hPa
+TMP:925 mb:t_925hPa
+TMP:850 mb:t_850hPa
+TMP:700 mb:t_700hPa
+TMP:500 mb:t_500hPa
+TMP:200 mb:t_200hPa
 # ==== V. Pot. and Strmfnct. ====
 VPOT:200 mb:velpot_200hPa
 STRM:200 mb:streamfunction_200hPa

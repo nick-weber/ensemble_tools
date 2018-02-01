@@ -210,12 +210,25 @@ def convert_gefs_grb2nc(idate, gefsdir, tablefile='cfs.table', nprocs=16, verbos
 
 
 
-def main(cycle=0):
+def check_ncfiles(gefsdir, idate):
+    """
+    Returns True is the netcdfs for this initialization date have already been created.
+    """
+    ncfiles = [os.path.join(gefsdir, '{}_{:%Y%m%d%H}.nc'.format(mem, idate)) for mem in members]
+    iscreated = [os.path.isfile(ncfile) for ncfile in ncfiles]
+    return np.array(iscreated).all()
+
+
+
+def main(cycle=0, return_ens_args=False, verbose=False):
     """
     Function for the operational downloading/processing of today's GEFS run.
     
     Requires:
-    cycle --> UTC hour (int) of cycle initialization (i.e., 0 or 12)
+    cycle -----------> UTC hour (int) of cycle initialization (i.e., 0 or 12)
+    return_ens_args -> if True, will return <args> and <kwargs> to be fed into 
+                       ensemble.GlobalEnsemble.from_NCEP_netcdfs() to create a
+                       GlobalEnsemble instance from this GEFS run
     """
     t0 = time()
     # Get today's date
@@ -224,14 +237,21 @@ def main(cycle=0):
     # Point to where we want to download the data
     gefsdir = '/home/disk/anvil2/ensembles/gefs/forecasts/{:%Y%m%d%H}'.format(today)
     
-    # Download the ensemble gribs
-    get_gefs(today, gefsdir, verbose=True)
+    if check_ncfiles(gefsdir, today):
+        if verbose: print('netcdfs for {:%Y%m%d%H} exist!'.format(today))
     
-    # Convert/combine the gribs to netcdfs (one per ensemble member)
-    convert_gefs_grb2nc(today, gefsdir, verbose=True)
+    else:
+        # Download the ensemble gribs
+        get_gefs(today, gefsdir, verbose=verbose)
+
+        # Convert/combine the gribs to netcdfs (one per ensemble member)
+        convert_gefs_grb2nc(today, gefsdir, verbose=verbose)
+
+        if verbose: print('\n ==== TOTAL ELAPSED TIME: {:.2f} min ====\n'.format((time()-t0)/60.))
     
-    print('\n ==== TOTAL ELAPSED TIME: {:.2f} min ====\n'.format((time()-t0)/60.))
-    return
+    if return_ens_args:
+        return (today, gefsdir), {'filetag':'g*.nc', 'model':'GEFS'}
+    else: return
 
 
 
