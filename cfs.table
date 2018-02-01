@@ -6,13 +6,13 @@
 # Nick Weber, May 2017
 #
 $lev_type  100:p:pressure level:mb:0.01
-$nlev      6
-$levs  1000 925 850 700 500 200
+$nlev      4
+$levs  850 700 500 200
 $grads 1
 
 # Include this in the wgrib2 command:
 # MAKE SURE THIS "-match" LINE ALWAYS REMAINS ON LINE 15 OF THIS TEXT FILE!!
-#-match ":(UGRD|VGRD|HGT|PRMSL|PRES|TMP|VPOT|STRM|ULWRF|VVEL|PWAT|PRATE):"
+#-match ":(UGRD|VGRD|HGT|PRMSL|PRES|TMP|VPOT|STRM|ULWRF|PWAT|PRATE|APCP):"
 
 # ===== RENAME! ========
 PWAT:entire atmosphere (considered as a single layer):precipw
@@ -44,6 +44,7 @@ HGT:850 mb:height_850hPa
 HGT:700 mb:height_700hPa
 HGT:500 mb:height_500hPa
 HGT:200 mb:height_200hPa
+HGT:surface:terrain
 # ==== TEMPERATURE ======
 TMP:2 m above ground:t2m
 TMP:surface:tsfc
@@ -59,38 +60,3 @@ STRM:200 mb:streamfunction_200hPa
 STRM:500 mb:streamfunction_500hPa
 
 # End of file
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#UGRD:*:uzonal
-#VGRD:*:umeridional
-#HGT:*:height
-#ABSV:*:vorticity
-##RH:*:rh:short:-2:110
-##VVEL:*:omega
-##TMP:*:temp
-##
-## JMA MSM model surface data conversion rules
-##
-#PRMSL:mean sea level:mslp
-#PRES:surface:psfc
-#UGRD:10 m above ground:u10
-#VGRD:10 m above ground:v10
-#TMP:1.5 m above ground:t2m
-#RH:1.5 m above ground:rh2m:short:-5:110
-## End of file

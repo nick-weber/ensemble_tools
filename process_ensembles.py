@@ -81,6 +81,7 @@ def process_gefs_parallel(intuple):
     print 'processing gefs for time:'+str(t)
     fileprefixes = ['pgrb2ap5']
     idate = today
+    hh = '00'
     #check if NC file already there
 
     for fileprefix in fileprefixes:
@@ -98,7 +99,7 @@ def process_gefs_parallel(intuple):
         else:
             print('NC file already there. Filename: {}'.format(nc_check[0]))
 
-def download_gefs(idate,gefsdir,fileprefixes,verbose=False,ihours = ['00','12']):
+def download_gefs(idate, gefsdir, fileprefixes, verbose=False, ihours=['00','12']):
     """
     Downloads operational GEFS ensemble forecasts (initialized on idate)
     Currently set to download pgrb2ap5 (0.5 degree resolution w/ most common parameters)
@@ -110,7 +111,7 @@ def download_gefs(idate,gefsdir,fileprefixes,verbose=False,ihours = ['00','12'])
     fileprefixes--> list of GEFS products to download (supports pgrb2ap5,pgrb2bp5 for sure)
     """
     
-    if not os.path.isdir(cfsdir):
+    if not os.path.isdir(gefsdir):
         os.system('mkdir -p {}'.format(gefsdir))
 
     # Point to the proper location on the NOMADS server for downloading CFSv2 forecasts
@@ -317,7 +318,7 @@ def timedelta_hours(dt_i, dt_f):
 
 if __name__ == '__main__':
     t1 = time.time()
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
     print('\n', today)                                      
     cfsdir = '/home/disk/vader2/njweber2/cfs4website/forecasts/{:%Y%m%d%H}'.format(today)
     #driver(today)

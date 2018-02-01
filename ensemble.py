@@ -35,7 +35,7 @@ class GlobalEnsemble(xarray.Dataset):
                                     chunks=chunks, autoclose=True, decode_cf=False)
         ensemble = ensemble.assign_coords(ens=np.arange(ensemble.dims['ens'])+1)
         # Change precipitation from mm/s to mm/h
-        if 'prate1h' in ensemble.variables.keys():
+        if 'prate1h' in ensemble.variables.keys() and model=='CFSv2':
             ensemble['prate1h'] *= 3600.
             ensemble.update(ensemble.assign(prate1d=ensemble.variables['prate1h']*24.))
         # Assign attributes
