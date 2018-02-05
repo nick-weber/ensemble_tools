@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """
-Module containing classes cyclone centers (at one time) and cyclone tracks
+Module containing classes for cyclone centers (at one time), cyclone tracks,
+ensemble cyclone track clusters, and full forecast sets of track clusters.
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -273,10 +274,11 @@ class TrackCluster:
             count = np.array([len(np.where(~np.isnan(ally[:,t]))[0]) for t in range(nt)])
             inds = np.where(count>0)[0]
             ax2.bar(np.arange(nt)[inds]*dt, count[inds], dt, color='grey', zorder=0, alpha=0.25)
-            ax2.set_ylim(0, self.tracks[0].centers[0].ens.nmems())
+            ax2.set_yticks(np.arange(nm)+1)
             ax2.yaxis.tick_right()
             sns.despine(right=False, left=True, offset=10, ax=ax2)
             ax2.set_ylabel('# of members')
+            
         # Create a title
         if title:
             model = self.tracks[0].centers[0].ens.model()
@@ -305,7 +307,7 @@ class EnsembleTrackClusters(dict):
                                 'light green', 'magenta', 'yellow', 'sky blue', 'lime green', 'puke', 'turquoise', 
                                 'lavender', 'bluish', 'tan', 'aqua', 'mauve', 'olive']*5)
     
-    def __init__(self, alltracks, min_cluster_size=4, latbounds=(20, 70), lonbounds=(150, 240)):
+    def __init__(self, alltracks, min_cluster_size=6, latbounds=(20, 70), lonbounds=(150, 240)):
         """
         Requires:
         alltracks --------> one long list of CycloneTrack objects in no particular order (includes all members)
@@ -317,7 +319,7 @@ class EnsembleTrackClusters(dict):
         from collections import Counter
         
         # 1) GET DATA TO CLUSTER THE TRACKS:
-        #    we could like to achieve one cluster per storm, where each cluster contains the cyclone
+        #    we would like to achieve one cluster per storm, where each cluster contains the cyclone
         #    track forecasts from each ensemble member
         #    NOTE: not every cluster will contain every ensemble member!
         
@@ -411,8 +413,8 @@ class EnsembleTrackClusters(dict):
         m.drawcoastlines()
         m.drawcountries()
         if landfill: m.fillcontinents(color='lightgrey')
-        m.drawparallels(np.arange(0,90,dlat),labels=[1,0,0,0], linestyle='--')
-        m.drawmeridians(np.arange(0,360,dlon),labels=[0,0,0,1], linestyle='--')
+        m.drawparallels(np.arange(0,90,dlat),labels=[1,0,0,0], dashes=[4,4])
+        m.drawmeridians(np.arange(0,360,dlon),labels=[0,0,0,1], dashes=[4,4])
         return m
 
     def plot_tracks_on_map(self, m, t_ind, show_unclustered=True, only_unclustered=False):

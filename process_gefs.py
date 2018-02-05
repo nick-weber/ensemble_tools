@@ -13,6 +13,8 @@ import multiprocessing
 from functools import partial
 from contextlib import contextmanager
 
+
+# Global variable: a list of GEFS ensemble member names (strings)
 members = ['gec00'] + ['gep{:02d}'.format(x+1) for x in range(20)]
 
 

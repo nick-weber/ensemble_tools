@@ -26,11 +26,20 @@ def driver(ens, filterscale=4, latbounds=(20, 70), lonbounds=(150, 240), verbose
     
     # 1) Calculate the spatially filtered 850 hPa vorticity
     if 'filt_relvor_850hPa' not in ens.variables.keys():
-        if verbose: print('Calculating 850hPa vorticity and applying spatial filter... ', end='')
+        #if verbose: print('Calculating 850hPa vorticity and applying spatial filter... ', end='')
+        #start = time()
+        #ens.calculate_relvor(lev=850)
+        #ens.spatial_filter('relvor_850hPa', N=filterscale)
+        #if verbose: print('{:.2f} min'.format((time()-start)/60.))
+        print('Calculating 850hPa vorticity... ', end='')
         start = time()
         ens.calculate_relvor(lev=850)
+        print('{:.2f} min'.format((time()-start)/60.))
+            
+        print('Applying spatial filter... ', end='')
+        start = time()
         ens.spatial_filter('relvor_850hPa', N=filterscale)
-        if verbose: print('{:.2f} min'.format((time()-start)/60.))
+        print('{:.2f} min'.format((time()-start)/60.))
             
     # 2) Find all possible cyclone tracks for each ensemble member
     if verbose: print('Finding cyclone centers and tracks for each ensemble member... ', end='')

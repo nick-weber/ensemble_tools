@@ -40,6 +40,11 @@ class GlobalEnsemble(xarray.Dataset):
             ensemble.update(ensemble.assign(prate1d=ensemble.variables['prate1h']*24.))
         elif model=='GEFS':
             ensemble.update(ensemble.assign(prate1h=ensemble.variables['ptotal']/6.))
+            # only need the terrain for one time/member
+            #terrain = ensemble['terrain'].isel(time=0, ens=0)
+            #ensemble.update(ensemble.drop('terrain'))
+            #ensemble.update(ensemble.assign(terrain=terrain))
+            
         # Assign attributes
         ensemble.attrs.update(idate=idate, dt=6, workdir=ncdir, model=model)
         ensemble.__class__ = cls
@@ -168,14 +173,13 @@ class GlobalEnsemble(xarray.Dataset):
         relvor = np.zeros(np.shape(u_full))
 
         # Loop through all the valid times and ensemble members
-        for i1 in range(np.shape(u_full)[0]):
-            for i2 in range(np.shape(u_full)[1]):
-                # Create the spherical harmonics vector object
-                u = u_full[i1, i2, ::-1, :]  # lats must go from N to S
-                v = v_full[i1, i2, ::-1, :]  # lats must go from N to S
-                wnd = VectorWind(u, v, gridtype='regular')
-                # Calculate the relative vorticity
-                relvor[i1, i2, :, :] = wnd.vorticity()[::-1, :]
+        for mem in range(self.nmems()):
+            # Create the spherical harmonics vector object
+            u = u_full[mem, :, ::-1, :]  # lats must go from N to S
+            v = v_full[mem, :, ::-1, :]  # lats must go from N to S
+            wnd = VectorWind(np.moveaxis(u,0,-1), np.moveaxis(v,0,-1), gridtype='regular') # time must be last
+            # Calculate the relative vorticity
+            relvor[mem, :, :, :] = np.moveaxis(wnd.vorticity(), -1, 0)[:, ::-1, :]
 
         # Assign relative vorticity as a new variable
         vorvar = xarray.DataArray(relvor, dims=self['u_{}hPa'.format(lev)].dims)
